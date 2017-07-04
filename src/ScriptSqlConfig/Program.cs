@@ -175,7 +175,7 @@ ScriptSqlConfig.EXE (" + v.ToString() + @")
 #if DEBUG
 				Console.WriteLine("");
 				Console.WriteLine("Press any key to continue....");
-				Console.ReadLine();
+                Console.ReadKey(false);
 #endif
 
 
@@ -205,10 +205,10 @@ ScriptSqlConfig.EXE (" + v.ToString() + @")
 
 #if DEBUG
 				Console.WriteLine("Press any key to continue....");
-				Console.ReadLine();
+                Console.ReadKey(false);
 #endif
-				
-		}
+
+        }
 
         private static void SetVersions(string server)
         {
@@ -276,6 +276,7 @@ ScriptSqlConfig.EXE (" + v.ToString() + @")
 			ScriptEventNotifications(conn, instanceDirectory, so);
 			ScriptOtherObjects(srv, instanceDirectory, so);
             ScriptDatabaseOptions(srv, instanceDirectory, so);
+            ScriptResourceGovernor(srv, instanceDirectory, so);
 
 			WriteMessage("Scripting User Objects and Security in System Databases...");
 			ScriptDatabase(srv.Name.ToString(), "master", Path.Combine(instanceDirectory, @"Databases\master"));
@@ -1434,7 +1435,74 @@ GO
 			
 		}
 
-		private static void RemoveSqlFiles(string directory)
+
+        private static void ScriptResourceGovernor(Server smoServer, string directory, ScriptingOptions options)
+        {
+            if (VERBOSE)
+                WriteMessage("Resource Governor...");
+
+            StringCollection sc = new StringCollection();
+  
+            if (smoServer.Edition.Contains("Enterprise") || smoServer.Edition.Contains("Developer"))
+            {
+                ResourceGovernor rg = smoServer.ResourceGovernor;
+                if (rg != null)
+                {
+                    sc.Add("USE master;");
+                    string classifierFunction = rg.ClassifierFunction;
+
+                    if (!String.IsNullOrEmpty(classifierFunction))
+                    {
+                        int objId = -1;
+                        using (SqlConnection conn = GetConnection(smoServer.Name, "master"))
+                        {
+                            string sql = "SELECT OBJECT_ID(@name)";
+                            SqlCommand cmd = new SqlCommand(sql);
+                            cmd.Connection = conn;
+                            cmd.Connection.Open();
+                            cmd.Parameters.Add(new SqlParameter("@name", System.Data.SqlDbType.NVarChar, 200));
+                            cmd.Parameters[0].Value = classifierFunction;
+                            objId = (int)(cmd.ExecuteScalar());
+                        }
+
+
+
+                        foreach (UserDefinedFunction udf in smoServer.Databases["master"].UserDefinedFunctions)
+                        {
+                            if (udf.ID == objId)
+                            {
+                                //if possible, script classifier function
+                                sc.Append(udf.Script(options));
+                                sc.Add("ALTER RESOURCE GOVERNOR WITH (CLASSIFIER_FUNCTION = NULL);");
+                                sc.Add("ALTER RESOURCE GOVERNOR DISABLE;");
+                                break;
+                            }
+
+                        }
+
+                        // script Resource Governor configurations
+                        sc.Append(rg.Script(options));
+
+                        // script Resource Pools
+                        foreach (ResourcePool pool in rg.ResourcePools)
+                        {
+                            sc.Append(pool.Script(options));
+
+                            // script Workload Groups
+                            foreach (WorkloadGroup wg in pool.WorkloadGroups)
+                            {
+                                sc.Append(wg.Script(options));
+                            }
+                        }
+
+                        WriteFile(sc, Path.Combine(directory, "ResourceGovernor.sql"), true);
+                    }
+                }
+            }
+        }
+
+
+        private static void RemoveSqlFiles(string directory)
 		{
 			throw new NotImplementedException("RemoveSqlFiles shouldn't be called.");
 			//DirectoryInfo dir = new DirectoryInfo(directory);
