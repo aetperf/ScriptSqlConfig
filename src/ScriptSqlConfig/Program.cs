@@ -1472,9 +1472,9 @@ GO
                             if (udf.ID == objId)
                             {
                                 //if possible, script classifier function
-                                sc.Append(udf.Script(options));
                                 sc.Add("ALTER RESOURCE GOVERNOR WITH (CLASSIFIER_FUNCTION = NULL);");
                                 sc.Add("ALTER RESOURCE GOVERNOR DISABLE;");
+                                sc.Append(udf.Script(options));
                                 break;
                             }
 
