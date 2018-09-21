@@ -148,22 +148,23 @@ ScriptSqlConfig.EXE (" + v.ToString() + @")
 	Optional Parameters:
 	----------------------------------------------------------------
 	
-	/v          (Verbose Output)
-	/databases  (Script databases)
-	/noinstance (Don't script instance information)
-	/user       (SQL Server user name.  It will use trusted
-				 security unless this option is specified.)
-	/password   (SQL Server password.  If /user is specified then
-				 /password is required.)
-	/scriptdb   (Database to script.  This will script a single 
-				 database in addition to the instance scripts.)
-	/?          (Display this help)
-    /testsmo    (Test loading the SMO libraries)
+	/v                  (Verbose Output)
+	/databases          (Script databases)
+	/noinstance         (Don't script instance information)
+	/user               (SQL Server user name.  It will use trusted
+				        security unless this option is specified.)
+	/password           (SQL Server password.  If /user is specified then
+				        /password is required.)
+	/scriptdb           (Database to script.  This will script a single 
+				        database in addition to the instance scripts.)
+	/?                  (Display this help)
+	/testsmo            (Test loading the SMO libraries)
+	/hashedpasswords    (generate sql logins with HASHED password, else will use ___password___ as password)
 
 	Sample Usage
 	----------------------------------------------------------------
 
-	ScriptSqlConfig.EXE /server Srv1\Instance /dir 'C:\MyDir'
+	ScriptSqlConfig.EXE /server Srv1\Instance /dir 'C:\MyDir' /hashedpasswords
 
 	Notes
 	----------------------------------------------------------------
@@ -189,7 +190,7 @@ ScriptSqlConfig.EXE (" + v.ToString() + @")
 			WriteMessage("Server: " + SERVER);
 
             /* Display the SMO version */
-            var ver = System.Reflection.Assembly.GetAssembly(typeof(Microsoft.SqlServer.Management.Smo.Server)).GetName().Version;
+            var ver = Assembly.GetAssembly(typeof(Server)).GetName().Version;
             WriteMessage("SMO Version: " + ver.ToString());
 
             /* Set the SQL Server version */
@@ -244,6 +245,7 @@ ScriptSqlConfig.EXE (" + v.ToString() + @")
 			so.IncludeDatabaseRoleMemberships = true;
 			so.AgentNotify = true;
 			so.AgentAlertJob = true;
+            
 			
 			
 			if (VERBOSE)
@@ -1436,13 +1438,13 @@ GO
 		}
 
 
-        private static void ScriptResourceGovernor(Server smoServer, string directory, ScriptingOptions options)
+        private static void ScriptResourceGovernor(Server smoServer, string directory, ScriptingOptions so)
         {
             if (VERBOSE)
-                WriteMessage("Resource Governor...");
+                WriteMessage("Scripting Resource Governor...");
 
             StringCollection sc = new StringCollection();
-  
+
             if (smoServer.Edition.Contains("Enterprise") || smoServer.Edition.Contains("Developer"))
             {
                 ResourceGovernor rg = smoServer.ResourceGovernor;
@@ -1474,31 +1476,47 @@ GO
                                 //if possible, script classifier function
                                 sc.Add("ALTER RESOURCE GOVERNOR WITH (CLASSIFIER_FUNCTION = NULL);");
                                 sc.Add("ALTER RESOURCE GOVERNOR DISABLE;");
-                                sc.Append(udf.Script(options));
+                                StringCollection udfscr = udf.Script(so);
+                                sc.Append(udfscr);
                                 break;
                             }
 
                         }
-
+                    }
                         // script Resource Governor configurations
-                        sc.Append(rg.Script(options));
+                        StringCollection rgscr = rg.Script();
+                        sc.Append(rgscr);
+  
 
                         // script Resource Pools
                         foreach (ResourcePool pool in rg.ResourcePools)
                         {
-                            sc.Append(pool.Script(options));
+                            StringCollection poolscr = pool.Script();
+                            sc.Append(poolscr);
+
 
                             // script Workload Groups
                             foreach (WorkloadGroup wg in pool.WorkloadGroups)
                             {
-                                sc.Append(wg.Script(options));
+                                StringCollection wgscr = wg.Script();
+                                sc.Append(wgscr);
+
                             }
                         }
 
-                        WriteFile(sc, Path.Combine(directory, "ResourceGovernor.sql"), true);
-                    }
+                        foreach (ExternalResourcePool expool in rg.ExternalResourcePools)
+                        {
+                            StringCollection expoolscr = expool.Script(so);
+                            sc.Append(expoolscr);
+
+                        }
+                    
                 }
+
             }
+            string fileName = Path.Combine(directory, "RessourceGovernor.sql");
+            WriteFile(sc, fileName, true);
+
         }
 
 
